@@ -1,51 +1,60 @@
 "use strict";
 
+
 const { Presensi } = require("../models");
 const { format } = require("date-fns-tz");
 const { Op } = require("sequelize");
 const timeZone = "Asia/Jakarta";
 
+
 exports.getDailyReport = async (req, res) => {
   try {
-    // Ambil tanggal hari ini (zona waktu Asia/Jakarta)
-    const today = format(new Date(), "yyyy-MM-dd", { timeZone });
+    const { nama, tanggalMulai, tanggalSelesai } = req.query;
 
-    // Hitung awal dan akhir hari (00:00:00 - 23:59:59)
-    const startOfDay = new Date(`${today}T00:00:00`);
-    const endOfDay = new Date(`${today}T23:59:59`);
+    // Siapkan kondisi pencarian
+    let whereClause = {};
 
-    // Ambil data dari database menggunakan Sequelize
-    const dailyData = await Presensi.findAll({
-      where: {
-        checkIn: {
-          [Op.between]: [startOfDay, endOfDay],
-        },
-      },
+    // Filter berdasarkan nama (LIKE)
+    if (nama) {
+      whereClause.nama = { [Op.like]: `%${nama}%` };
+    }
+
+    // Filter berdasarkan rentang tanggal (checkIn)
+    if (tanggalMulai && tanggalSelesai) {
+      const startDate = new Date(`${tanggalMulai}T00:00:00`);
+      const endDate = new Date(`${tanggalSelesai}T23:59:59`);
+      whereClause.checkIn = { [Op.between]: [startDate, endDate] };
+    }
+
+    // Ambil data dari database
+    const records = await Presensi.findAll({
+      where: whereClause,
       order: [["checkIn", "ASC"]],
     });
 
-    // Format hasil untuk dikirim ke response
-    const formattedData = dailyData.map(record => ({
+    // Format hasil untuk response
+    const formattedData = records.map((record) => ({
       id: record.id,
       userId: record.userId,
       nama: record.nama,
-      checkIn: format(record.checkIn, "yyyy-MM-dd HH:mm:ssXXX", { timeZone }),
+      checkIn: record.checkIn
+        ? format(record.checkIn, "yyyy-MM-dd HH:mm:ssXXX", { timeZone })
+        : null,
       checkOut: record.checkOut
         ? format(record.checkOut, "yyyy-MM-dd HH:mm:ssXXX", { timeZone })
         : null,
     }));
 
-    // Kirim hasil ke client
+    // Kirim response
     res.json({
-      message: `Laporan presensi tanggal ${today}`,
+      message: "Laporan presensi berhasil diambil.",
       total: formattedData.length,
       data: formattedData,
     });
-
   } catch (error) {
-    console.error("❌ Error getDailyReport:", error);
+    console.error(" Error getDailyReport:", error);
     res.status(500).json({
-      message: "Terjadi kesalahan saat mengambil laporan presensi",
+      message: "Gagal mengambil laporan presensi.",
       error: error.message,
     });
   }
