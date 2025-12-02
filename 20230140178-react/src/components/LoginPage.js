@@ -1,103 +1,111 @@
-import React, { useState } from "react";
-import axios from "axios";
-import { useNavigate } from "react-router-dom";
+// src/pages/LoginPage.js
 
-function LoginPage() {
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
+
+const LoginPage = () => {
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState(null);
-  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    setError(null);
+
+    if (!email || !password) {
+      alert("Email dan password harus diisi!");
+      return;
+    }
+
+    setLoading(true);
+
     try {
-      const response = await axios.post("http://localhost:3001/api/auth/login", {
+      const res = await axios.post("http://localhost:3001/api/auth/login", {
         email,
         password,
       });
 
-      const token = response.data.token;
+      const data = res.data;
+      console.log("Login response:", data);
+
+      // Pastikan struktur data sesuai backend
+      const token = data.token;
+      const role = data.data?.role || data.user?.role; // fallback jika backend pakai `user` atau `data`
+
+      if (!token) {
+        alert("Login gagal! Token tidak diterima dari server.");
+        return;
+      }
+
       localStorage.setItem("token", token);
+      localStorage.setItem("userRole", role);
+
+      alert(data.message || "Login berhasil!");
       navigate("/dashboard");
     } catch (err) {
-      setError(err.response ? err.response.data.message : "Login gagal, coba lagi.");
+      console.log("LOGIN ERROR:", err.response?.data || err.message);
+      if (err.response) {
+        alert(err.response.data.message || "Login gagal!");
+      } else if (err.code === "ECONNABORTED") {
+        alert("Timeout! Server tidak merespon.");
+      } else {
+        alert("Tidak dapat terhubung ke server!");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-100 to-blue-200">
-      <div className="bg-white/80 backdrop-blur-md shadow-2xl rounded-2xl p-10 w-full max-w-md border border-gray-200">
-        <h1 className="text-3xl font-extrabold text-center mb-6 text-green-700">
+    <div className="flex items-center justify-center min-h-screen bg-emerald-50">
+      <div className="bg-white shadow-lg rounded-2xl p-8 w-full max-w-md border border-emerald-100">
+        <h2 className="text-3xl font-bold text-center text-emerald-700 mb-6">
           Selamat Datang
-        </h1>
-        <p className="text-center text-gray-600 mb-6 text-sm">
-          Masukkan email dan password Anda untuk login.
-        </p>
+        </h2>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label
-              htmlFor="email"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              placeholder="Masukkan email Anda"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 transition"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
+        <form onSubmit={handleLogin}>
+          <label className="block mb-2 font-medium text-gray-700">Email</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Masukkan email..."
+            className="w-full p-2 mb-4 border border-gray-300 rounded focus:ring-2 focus:ring-emerald-400"
+          />
 
-          <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              placeholder="Masukkan password"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 transition"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
+          <label className="block mb-2 font-medium text-gray-700">Password</label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Masukkan password..."
+            className="w-full p-2 mb-6 border border-gray-300 rounded focus:ring-2 focus:ring-emerald-400"
+          />
 
           <button
             type="submit"
-            className="w-full bg-gradient-to-r from-green-500 to-blue-500 text-white py-2 rounded-lg font-semibold shadow-md hover:from-green-600 hover:to-blue-600 transition-all duration-300"
+            disabled={loading}
+            className={`w-full py-2 rounded-lg text-white font-semibold shadow-md transition ${
+              loading ? "bg-emerald-300 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700"
+            }`}
           >
-            Login
+            {loading ? "Memproses..." : "Masuk"}
           </button>
         </form>
 
-        {error && (
-          <div className="mt-5 text-center text-sm text-red-600 font-medium">
-            {error}
-          </div>
-        )}
-
-        <div className="text-center mt-6 text-gray-700 text-sm">
+        <p className="text-center text-sm text-gray-600 mt-4">
           Belum punya akun?{" "}
           <button
             onClick={() => navigate("/register")}
-            className="text-green-600 font-semibold hover:underline"
+            className="text-emerald-700 font-medium hover:underline"
           >
             Daftar di sini
           </button>
-        </div>
+        </p>
       </div>
     </div>
   );
-}
+};
 
 export default LoginPage;
