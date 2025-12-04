@@ -1,5 +1,4 @@
 // src/components/PresensiPage.js
-
 import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import Webcam from "react-webcam";
@@ -30,27 +29,17 @@ function PresensiPage() {
   const [showPopup, setShowPopup] = useState(false);
 
   const webcamRef = useRef(null);
-  const [photo, setPhoto] = useState(null);
+  const [photo, setPhoto] = useState(null); // base64 data URL
 
-  const campusLocation = { lat: -7.806817, lng: 110.327136 };
-  const MAX_RADIUS = 50; 
-
-  // Distance function
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371;
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(lat1 * Math.PI / 180) *
-      Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLon / 2) ** 2;
-
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 1000;
-  };
-
-  // Get GPS
+  // Get GPS on mount
   useEffect(() => {
+    if (!("geolocation" in navigator)) {
+      setError("Browser tidak mendukung geolocation.");
+      setIsLoading(false);
+      setShowPopup(true);
+      return;
+    }
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setCoords({
@@ -59,33 +48,47 @@ function PresensiPage() {
         });
         setIsLoading(false);
       },
-      () => {
-        setError("Tidak bisa mengambil lokasi GPS.");
-        setShowPopup(true);
+      (err) => {
+        setError("Tidak bisa mengambil lokasi GPS. Pastikan izin lokasi diaktifkan.");
         setIsLoading(false);
+        setShowPopup(true);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
       }
     );
   }, []);
 
-  // Ambil foto
+  // Ambil foto dari webcam (base64)
   const capturePhoto = () => {
-    const imageSrc = webcamRef.current.getScreenshot();
-    setPhoto(imageSrc);
+    try {
+      const imageSrc = webcamRef.current.getScreenshot();
+      if (!imageSrc) {
+        setError("Gagal mengambil foto. Coba ulangi.");
+        setShowPopup(true);
+        return;
+      }
+      setPhoto(imageSrc);
+      setError("");
+    } catch (e) {
+      setError("Gagal mengambil foto.");
+      setShowPopup(true);
+    }
   };
 
-  // Kirim presensi
+  // Helper: convert dataURL (base64) -> File
+  const dataURLtoFile = async (dataUrl, filename = "presensi.jpg") => {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    return new File([blob], filename, { type: blob.type || "image/jpeg" });
+  };
+
+  // Kirim presensi (check-in/check-out) sebagai multipart (image file)
   const sendPresensi = async (type) => {
-    if (!coords) return;
-
-    const distance = calculateDistance(
-      coords.lat,
-      coords.lng,
-      campusLocation.lat,
-      campusLocation.lng
-    );
-
-    if (distance > MAX_RADIUS) {
-      setError(`Anda berada di luar radius! (${distance.toFixed(2)}m)`);
+    if (!coords) {
+      setError("Lokasi belum tersedia. Pastikan GPS aktif.");
       setShowPopup(true);
       return;
     }
@@ -102,20 +105,40 @@ function PresensiPage() {
 
     try {
       const token = localStorage.getItem("token");
+      if (!token) {
+        setError("Token tidak ditemukan. Silakan login ulang.");
+        setShowPopup(true);
+        setSending(false);
+        return;
+      }
+
+      // convert base64 -> File
+      const file = await dataURLtoFile(photo, `presensi-${Date.now()}.jpg`);
+
+      const formData = new FormData();
+      formData.append("image", file); // field name harus 'image' sesuai multer.single('image')
+      formData.append("latitude", coords.lat);
+      formData.append("longitude", coords.lng);
 
       const res = await axios.post(
         `http://localhost:3001/api/presensi/${type}`,
+        formData,
         {
-          latitude: coords.lat,
-          longitude: coords.lng,
-          image: photo,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "multipart/form-data",
+          },
+          timeout: 30000,
+        }
       );
 
       setMessage(res.data.message || "Presensi berhasil!");
       setShowPopup(true);
+
+      // optionally clear photo after sukses
+      setPhoto(null);
     } catch (err) {
+      console.error(err);
       setError(err.response?.data?.message || "Gagal mengirim presensi!");
       setShowPopup(true);
     } finally {
@@ -125,12 +148,12 @@ function PresensiPage() {
 
   return (
     <div className="w-full flex justify-center p-4">
-      <div className="w-full max-w-[450px]">
+      <div className="w-full max-w-[520px]">
 
         {/* POPUP MODAL */}
         {showPopup && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-            <div className="bg-white rounded-lg p-6 shadow-lg w-80 text-center">
+            <div className="bg-white rounded-lg p-6 shadow-lg w-11/12 max-w-md text-center">
               <h3 className="text-lg font-semibold mb-3">
                 {error ? "Pemberitahuan" : "Berhasil"}
               </h3>
@@ -157,26 +180,22 @@ function PresensiPage() {
           Presensi Kehadiran
         </h2>
 
-        {isLoading && <p>Mengambil lokasi...</p>}
+        {isLoading && <p className="text-center mb-3">Mengambil lokasi...</p>}
 
-        {/* MAP */}
+        {/* MAP (tampilkan lokasi user jika ada) */}
         {coords && (
-          <MapContainer
-            center={[coords.lat, coords.lng]}
-            zoom={17}
-            style={{ height: "280px", width: "100%", borderRadius: "10px" }}
-            className="shadow-md mb-6"
-          >
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-
-            <Marker position={[coords.lat, coords.lng]}>
-              <Popup>Lokasi Anda</Popup>
-            </Marker>
-
-            <Marker position={[campusLocation.lat, campusLocation.lng]}>
-              <Popup>Lokasi Kampus</Popup>
-            </Marker>
-          </MapContainer>
+          <div className="shadow-md rounded mb-5 overflow-hidden" style={{ height: 260 }}>
+            <MapContainer
+              center={[coords.lat, coords.lng]}
+              zoom={17}
+              style={{ height: "100%", width: "100%" }}
+            >
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              <Marker position={[coords.lat, coords.lng]}>
+                <Popup>Lokasi Anda</Popup>
+              </Marker>
+            </MapContainer>
+          </div>
         )}
 
         {/* CAMERA */}
@@ -190,11 +209,12 @@ function PresensiPage() {
                 ref={webcamRef}
                 screenshotFormat="image/jpeg"
                 className="rounded-lg w-full shadow-md"
-                videoConstraints={{ width: 350, facingMode: "user" }}
+                videoConstraints={{ width: 640, facingMode: "user" }}
               />
               <button
                 onClick={capturePhoto}
-                className="mt-3 w-full py-2 bg-purple-600 text-white font-semibold rounded-lg"
+                className="mt-3 w-full py-2 bg-purple-600 text-white font-semibold rounded-lg disabled:opacity-60"
+                disabled={sending}
               >
                 Ambil Foto
               </button>
@@ -204,14 +224,26 @@ function PresensiPage() {
               <img
                 src={photo}
                 alt="Captured"
-                className="rounded-lg w-full shadow-md"
+                className="rounded-lg w-full shadow-md object-cover max-h-72"
               />
-              <button
-                onClick={() => setPhoto(null)}
-                className="mt-3 w-full py-2 bg-gray-600 text-white font-semibold rounded-lg"
-              >
-                Ambil Ulang Foto
-              </button>
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => setPhoto(null)}
+                  className="flex-1 py-2 bg-gray-600 text-white font-semibold rounded-lg"
+                  disabled={sending}
+                >
+                  Ambil Ulang Foto
+                </button>
+                <button
+                  onClick={() => {
+                    // quick re-capture: show webcam again for better UX you may implement modal
+                    setPhoto(null);
+                  }}
+                  className="py-2 px-4 bg-yellow-500 text-white font-semibold rounded-lg"
+                >
+                  Edit
+                </button>
+              </div>
             </>
           )}
         </div>
@@ -221,17 +253,17 @@ function PresensiPage() {
           <button
             onClick={() => sendPresensi("check-in")}
             disabled={sending || !coords}
-            className="w-full py-3 rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700"
+            className="w-full py-3 rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 disabled:opacity-60"
           >
-            Check-in
+            {sending ? "Mengirim..." : "Check-in"}
           </button>
 
           <button
             onClick={() => sendPresensi("check-out")}
             disabled={sending || !coords}
-            className="w-full py-3 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700"
+            className="w-full py-3 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-60"
           >
-            Check-out
+            {sending ? "Mengirim..." : "Check-out"}
           </button>
         </div>
 

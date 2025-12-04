@@ -3,7 +3,7 @@ const cors = require("cors");
 const app = express();
 const PORT = 3001;
 const morgan = require("morgan");
-
+const path = require('path'); 
 const presensiRoutes = require("./routes/presensi");
 const reportRoutes = require("./routes/reports");
 const authRouters = require("./routes/auth");
@@ -26,3 +26,4 @@ app.use("/api/auth", authRouters);
 app.listen(PORT, () => {
   console.log(`Express server running at http://localhost:${PORT}/`);
 });
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'))); 
